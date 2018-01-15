@@ -23,18 +23,68 @@ $sth->execute();
 while ($row = $sth->fetch()) {
 	$OrganizationId = $row['id'];
 	
-	$Locations = getLocationsFromOrganization($dbMaster, $OrganizationId);
+	$Locations = getLocationsFromOrganization($dbSlave, $OrganizationId);
 
 	$reportWeeks = getReportWeeksFromOrganization($row['timezone'], $row['day_week_starts']);
 
+
+  //Computer analytics for each location
 	foreach($Locations AS $Location) {
 
-      		echo "Gathering metrics for location: " . $Location->location . "\n";
+    echo "Gathering metrics for location: " . $Location->location . "\n";
 
-      		calculateLocationTaskMetrics($dbSlave, $dbMaster, $OrganizationId, $Location->location, $reportWeeks);
+    calculateLocationTaskMetrics($dbSlave, $dbMaster, $OrganizationId, $Location->location, $reportWeeks);
 
-      		calculateLocationTaskGroupMetrics($dbSlave, $dbMaster, $Location, $reportWeeks);
-  	}
+    calculateLocationTaskGroupMetrics($dbSlave, $dbMaster, $Location, $reportWeeks);
+
+  }
+
+
+  $Divisions = getDivisionsFromOrganization($dbSlave, $OrganizationId);
+
+  foreach($Divisions AS $Division) {
+
+    echo $Division->name;
+
+    foreach($reportWeeks AS $reportWeek) {
+
+      $reportWeekEndDay = $reportWeek->end_day->format("Y-m-d");
+
+      echo "<br/>Generating metrics for week ending: " . $reportWeekEndDay . " <br/>";
+
+      $location_IDs = getLocationIdsFromDivision($dbSlave, $Division->id);
+
+      $Results = get_summary_from_multiple_locations_between_two_dates($dbSlave, $location_IDs, $reportWeek->end_day, $reportWeek->start_day);
+
+      //Maybe calculate completed percentage here?
+
+      $unresolved_violations = 0;
+
+      $locationsWithCompletedTask = 0;
+
+      $completionPercentage = 0;
+
+      $totalCompletedPlusMissed = $Results->completed_scheduled + $Results->missed;
+
+      if($totalCompletedPlusMissed > 0) {
+        $completionPercentage = $Results->completed_scheduled / $totalCompletedPlusMissed * 100;
+
+        //We should be smarter here...  Or triggering an event to handle.
+        if($completionPercentage > 100) {
+          $completionPercentage = 100;
+        }
+
+      }
+
+      
+
+      $totalLocations = count($location_IDs);
+
+      $q3 = $dbMaster->prepare("INSERT INTO weekly_division_task_metrics (organization,division,week_end_day,completed_tasks,missed_tasks,violations, unresolved_violations, locations, location_with_completed_task,completion_percentage) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE completed_tasks = ?, missed_tasks = ?, violations = ?, unresolved_violations = ?, locations = ?, location_with_completed_task = ?, completion_percentage = ?");
+
+      $q3->execute(array($Organization->id, $Division->id, $reportWeekEndDay, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
+    }
+  }
 
 	echo "\n";
 }
@@ -47,14 +97,52 @@ echo 'Total Execution Time: ' . $time_elapsed_secs . ' Seconds';
 
 echo "\n";
 
-function getLocationsFromOrganization($db, $OrganizationId) {
+function get_summary_from_multiple_locations_between_two_dates($db, $location_IDs, $dateTo, $dateFrom) {
+
+  $location_array_implosions = implode(',', $location_IDs);
+
+  //Run the magical query
+  $stmt = $db->prepare("SELECT count(R.id) total, sum(case when R.completed = 'Y' AND R.task_block IS NOT NULL then 1 else 0 end) completed_scheduled, sum(case when R.completed = 'N' then 1 else 0 end) missed, sum(case when R.completed = 'NA' then 1 else 0 end) notavailable, sum(case when R.corrective_action IS NOT NULL AND completed = 'Y' then 1 else 0 end) violations, sum(case when R.completed = 'Y' AND R.task_block IS NULL then 1 else 0 end) completed_not_scheduled from task_result R WHERE R.location IN (" . $location_array_implosions . ") AND R.day BETWEEN ? AND ? ORDER BY violations DESC;",array($dateFrom->format("Y-m-d"),$dateTo->format("Y-m-d")));
+
+  return $stmt->fetch();
+}
+
+function getLocationIdsFromDivision($db, $DivisionId) {
+
+  $LocationIds = array();
+
+  $r = $db->prepare("SELECT * FROM organization_division_location WHERE organization_division = ?");
+
+  $r->execute(array($DivisionId));
+
+  $Result = $r->fetchAll(PDO::FETCH_OBJ);
+
+  foreach($Result AS $Row) {
+    $LocationIds[] = $Row->location;
+  }
+
+  return $LocationIds;
+}
+
+function getDivisionsFromOrganization($db, $OrganizationId) {
 
 	//We need to determine what tasks should be completed and what tasks have not been completed.
-	$r = $db->prepare("SELECT location.id AS location,location.timezone FROM organization_location LEFT JOIN location ON location.id = organization_location.location WHERE organization = ?");
+	$r = $db->prepare("SELECT * FROM organization_division WHERE organization = ?");
 
 	$r->execute(array($OrganizationId));
 
 	return $r->fetchAll(PDO::FETCH_OBJ);
+
+}
+
+function getDivisionsFromOrganization($db, $OrganizationId) {
+
+  //We need to determine what tasks should be completed and what tasks have not been completed.
+  $r = $db->prepare("SELECT location.id AS location,location.timezone FROM organization_location LEFT JOIN location ON location.id = organization_location.location WHERE organization = ?");
+
+  $r->execute(array($OrganizationId));
+
+  return $r->fetchAll(PDO::FETCH_OBJ);
 
 }
 
