@@ -93,6 +93,34 @@ while ($row = $sth->fetch()) {
     }
   }
 
+  $Districts = getDistrictsFromOrganization($dbSlave, $OrganizationId);
+
+  foreach($Districts AS $District) {
+
+    if($District->MaxWeekEndDay) {
+
+      $numberOfDaysBetweenLastAndNextReports = getNumberOfDaysBetweenTwoDays($District->MaxWeekEndDay, $nextReportWeekEndDay);
+
+      if($numberOfDaysBetweenLastAndNextReports > 7) {
+
+        generateDistrictMetrics($dbSlave, $dbMaster, $District, $nextReportWeekEndDay, 6);
+
+      } else {
+
+        //Same as determining if they are equal to each other...
+        $numberOfDaysBetweenTodayAndNextReport = getNumberOfDaysBetweenTwoDays($generateReportForWeekEndingDay, $nextReportWeekEndDay);
+
+        if($numberOfDaysBetweenTodayAndNextReport == 0 && $District->MaxWeekEndDay != $nextReportWeekEndDay) {
+
+          generateDistrictMetrics($dbSlave, $dbMaster, $District, $generateReportForWeekEndingDay, 1);
+
+        }
+      }
+    } else {
+      generateDistrictMetrics($dbSlave, $dbMaster, $District, $nextReportWeekEndDay, 6);
+    }
+  }
+
 	echo "\n";
 }
 
@@ -136,6 +164,34 @@ function generateLocationMetrics($dbSlave, $dbMaster, $Location, $nextReportWeek
   }
 }
 
+function generateDistrictMetrics($dbSlave, $dbMaster, $District, $nextReportWeekEndDay, $numberOfReportsToGenerate) {
+
+
+  if($numberOfReportsToGenerate == 1) {
+
+    $reportWeekEndDay = $nextReportWeekEndDay;
+
+  } else {
+
+    $reportWeekEndDay = getLastReportWeekEndDayFromNextReportWeekEndDay($nextReportWeekEndDay);
+
+  }
+
+  $reportWeekStartDay = getReportWeekStartDayFromEndDay($reportWeekEndDay);
+
+  //Calculate for the last week.
+  calculateMetricsForDistrictBetweenTwoDays($dbSlave, $dbMaster, $District, $reportWeekStartDay, $reportWeekEndDay);
+
+  //This generates additional division metric reports
+  if($numberOfReportsToGenerate > 1) {
+    for($week = 1; $week <= $numberOfReportsToGenerate; $week++) {
+      $reportWeekStartDay = getLastReportWeekEndDayFromNextReportWeekEndDay($reportWeekStartDay);
+      $reportWeekEndDay = getLastReportWeekEndDayFromNextReportWeekEndDay($reportWeekEndDay);
+      calculateMetricsForDistrictBetweenTwoDays($dbSlave, $dbMaster, $District, $reportWeekStartDay, $reportWeekEndDay);
+    }
+  }
+}
+
 function generateDivisionMetrics($dbSlave, $dbMaster, $Division, $nextReportWeekEndDay, $numberOfReportsToGenerate) {
 
 
@@ -162,8 +218,45 @@ function generateDivisionMetrics($dbSlave, $dbMaster, $Division, $nextReportWeek
       calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Division, $reportWeekStartDay, $reportWeekEndDay);
     }
   }
+}
 
+function calculateMetricsForDistrictBetweenTwoDays($dbSlave, $dbMaster, $District, $reportWeekStartDay, $reportWeekEndDay) {
 
+  $location_IDs = getLocationIdsFromDistrict($dbSlave, $District->id);
+
+  $totalLocations = count($location_IDs);
+
+  if($totalLocations > 0) {
+
+    $Results = get_summary_from_multiple_locations_between_two_dates($dbSlave, $location_IDs, $reportWeekStartDay, $reportWeekEndDay);
+
+    if($Results) {
+
+      //Maybe calculate completed percentage here?
+
+      $unresolved_violations = 0;
+
+      $locationsWithCompletedTask = 0;
+
+      $completionPercentage = 0;
+
+      $totalCompletedPlusMissed = $Results->completed_scheduled + $Results->missed;
+
+      if($totalCompletedPlusMissed > 0) {
+        $completionPercentage = $Results->completed_scheduled / $totalCompletedPlusMissed * 100;
+
+        //We should be smarter here...  Or triggering an event to handle.
+        if($completionPercentage > 100) {
+          $completionPercentage = 100;
+        }
+
+      }
+
+      $q3 = $dbMaster->prepare("INSERT INTO weekly_district_task_metrics (organization,district,week_end_day,completed_tasks,missed_tasks,violations, unresolved_violations, locations, location_with_completed_task,completion_percentage) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE completed_tasks = ?, missed_tasks = ?, violations = ?, unresolved_violations = ?, locations = ?, location_with_completed_task = ?, completion_percentage = ?");
+
+      $q3->execute(array($District->organization, $District->id, $reportWeekEndDay, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
+    }
+  }
 }
 
 function calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Division, $reportWeekStartDay, $reportWeekEndDay) {
@@ -224,11 +317,28 @@ function get_summary_from_multiple_locations_between_two_dates($db, $location_ID
   return $r->fetch(PDO::FETCH_OBJ);
 }
 
+function getLocationIdsFromDistrict($db, $DistrictId) {
+
+  $LocationIds = array();
+
+  $r = $db->prepare("SELECT location FROM organization_district_location WHERE organization_district = ?");
+
+  $r->execute(array($DistrictId));
+
+  $Result = $r->fetchAll(PDO::FETCH_OBJ);
+
+  foreach($Result AS $Row) {
+    $LocationIds[] = $Row->location;
+  }
+
+  return $LocationIds;
+}
+
 function getLocationIdsFromDivision($db, $DivisionId) {
 
   $LocationIds = array();
 
-  $r = $db->prepare("SELECT location.id AS location FROM organization_district_location ODL LEFT JOIN organization_district ON organization_district.id = ODL.organization_district LEFT JOIN location ON location.id = ODL.location WHERE organization_district.organization_division = ?");
+  $r = $db->prepare("SELECT ODL.location FROM organization_district_location ODL LEFT JOIN organization_district ON organization_district.id = ODL.organization_district WHERE organization_district.organization_division = ?");
 
   $r->execute(array($DivisionId));
 
@@ -241,16 +351,29 @@ function getLocationIdsFromDivision($db, $DivisionId) {
   return $LocationIds;
 }
 
-function getDivisionsFromOrganization($db, $OrganizationId) {
+function getDistrictsFromOrganization($db, $OrganizationId) {
 
 	//We need to determine what tasks should be completed and what tasks have not been completed.
-	$r = $db->prepare("SELECT organization_division.organization AS organization, organization_division.id, organization_division.name, groupeddtm.MaxWeekEndDay FROM organization_division INNER JOIN (SELECT division,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_division_task_metrics GROUP BY division) groupeddtm ON organization_division.id = groupeddtm.division WHERE organization_division.organization = ?");
+	$r = $db->prepare("SELECT organization_district.organization AS organization, organization_district.id, organization_district.name, groupeddtm.MaxWeekEndDay FROM organization_district INNER JOIN (SELECT district,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_district_task_metrics GROUP BY district) groupeddtm ON organization_district.id = groupeddtm.district WHERE organization_district.organization = ?");
 
 	$r->execute(array($OrganizationId));
 
 	return $r->fetchAll(PDO::FETCH_OBJ);
 
 }
+
+
+function getDivisionsFromOrganization($db, $OrganizationId) {
+
+  //We need to determine what tasks should be completed and what tasks have not been completed.
+  $r = $db->prepare("SELECT organization_division.organization AS organization, organization_division.id, organization_division.name, groupeddtm.MaxWeekEndDay FROM organization_division INNER JOIN (SELECT division,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_division_task_metrics GROUP BY division) groupeddtm ON organization_division.id = groupeddtm.division WHERE organization_division.organization = ?");
+
+  $r->execute(array($OrganizationId));
+
+  return $r->fetchAll(PDO::FETCH_OBJ);
+
+}
+
 
 function getLocationsFromOrganization($db, $OrganizationId) {
 
