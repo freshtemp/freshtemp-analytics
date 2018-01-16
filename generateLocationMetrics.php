@@ -16,45 +16,167 @@ $dbMaster->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 
 //Only check for tasks marked null.
-$sth = $dbMaster->prepare("SELECT id,timezone,day_week_starts FROM organization WHERE compute_analytics = 'Y'");
+$sth = $dbMaster->prepare("SELECT id,name,timezone,day_week_starts FROM organization WHERE compute_analytics = 'Y'");
 
 $sth->execute();
 
 while ($row = $sth->fetch()) {
-	$OrganizationId = $row['id'];
-	
+
+  $OrganizationName = $row['name'];
+
+  $OrganizationId = $row['id'];
+
+  echo $OrganizationName . "[" . $OrganizationId . "]\n";
+
+  $generateReportForWeekEndingDay = getCurrentReportEndDay($row['timezone']);
+
+  $nextReportWeekEndDay = getNextReportWeekEndDay($row['timezone'],$row['day_week_starts']);
+
 	$Locations = getLocationsFromOrganization($dbSlave, $OrganizationId);
-
-	$reportWeeks = getReportWeeksFromOrganization($row['timezone'], $row['day_week_starts']);
-
 
   //Computer analytics for each location
 	foreach($Locations AS $Location) {
 
-    echo "Gathering metrics for location: " . $Location->location . "\n";
+    if($Location->MaxWeekEndDay) {
 
-    calculateLocationTaskMetrics($dbSlave, $dbMaster, $OrganizationId, $Location->location, $reportWeeks);
+      $numberOfDaysBetweenLastAndNextReports = getNumberOfDaysBetweenTwoDays($Location->MaxWeekEndDay, $nextReportWeekEndDay);
 
-    calculateLocationTaskGroupMetrics($dbSlave, $dbMaster, $Location, $reportWeeks);
+      //This might not be needed but exists anyway...  number of days should never be greater than 7.
+      if($numberOfDaysBetweenLastAndNextReports > 7) {
+
+        generateLocationMetrics($dbSlave, $dbMaster, $Location, $nextReportWeekEndDay, 6);
+
+      } else {
+
+        $numberOfDaysBetweenTodayAndNextReport = getNumberOfDaysBetweenTwoDays($generateReportForWeekEndingDay, $nextReportWeekEndDay);
+
+        if($numberOfDaysBetweenTodayAndNextReport == 0 && $Location->MaxWeekEndDay != $nextReportWeekEndDay) {
+
+          generateLocationMetrics($dbSlave, $dbMaster, $Location, $generateReportForWeekEndingDay, 1);
+
+        }
+      }
+
+    } else {
+
+      generateLocationMetrics($dbSlave, $dbMaster, $Location, $nextReportWeekEndDay, 6);
+
+    }
 
   }
-
 
   $Divisions = getDivisionsFromOrganization($dbSlave, $OrganizationId);
 
   foreach($Divisions AS $Division) {
 
-    echo $Division->name;
+    if($Division->MaxWeekEndDay) {
 
-    foreach($reportWeeks AS $reportWeek) {
+      $numberOfDaysBetweenLastAndNextReports = getNumberOfDaysBetweenTwoDays($Division->MaxWeekEndDay, $nextReportWeekEndDay);
 
-      $reportWeekEndDay = $reportWeek->end_day->format("Y-m-d");
+      if($numberOfDaysBetweenLastAndNextReports > 7) {
 
-      echo "<br/>Generating metrics for week ending: " . $reportWeekEndDay . " <br/>";
+        generateDivisionMetrics($dbSlave, $dbMaster, $Division, $nextReportWeekEndDay, 6);
 
-      $location_IDs = getLocationIdsFromDivision($dbSlave, $Division->id);
+      } else {
 
-      $Results = get_summary_from_multiple_locations_between_two_dates($dbSlave, $location_IDs, $reportWeek->end_day, $reportWeek->start_day);
+        //Same as determining if they are equal to each other...
+        $numberOfDaysBetweenTodayAndNextReport = getNumberOfDaysBetweenTwoDays($generateReportForWeekEndingDay, $nextReportWeekEndDay);
+
+        if($numberOfDaysBetweenTodayAndNextReport == 0 && $Division->MaxWeekEndDay != $nextReportWeekEndDay) {
+
+          generateDivisionMetrics($dbSlave, $dbMaster, $Division, $generateReportForWeekEndingDay, 1);
+
+        }
+      }
+    } else {
+      generateDivisionMetrics($dbSlave, $dbMaster, $Division, $nextReportWeekEndDay, 6);
+    }
+  }
+
+	echo "\n";
+}
+
+echo "\n";
+
+$time_elapsed_secs = microtime(true) - $start;
+
+echo 'Total Execution Time: ' . $time_elapsed_secs . ' Seconds';
+
+echo "\n";
+
+function generateLocationMetrics($dbSlave, $dbMaster, $Location, $nextReportWeekEndDay, $numberOfReportsToGenerate) {
+  if($numberOfReportsToGenerate == 1) {
+
+    $reportWeekEndDay = $nextReportWeekEndDay;
+
+  } else {
+
+    $reportWeekEndDay = getLastReportWeekEndDayFromNextReportWeekEndDay($nextReportWeekEndDay);
+
+  }
+
+  $reportWeekStartDay = getReportWeekStartDayFromEndDay($reportWeekEndDay);
+
+  calculateLocationTaskMetrics($dbSlave, $dbMaster, $Location, $reportWeekStartDay, $reportWeekEndDay);
+
+  calculateLocationTaskGroupMetrics($dbSlave, $dbMaster, $Location, $reportWeekStartDay, $reportWeekEndDay);
+
+  //This generates additional division metric reports
+  if($numberOfReportsToGenerate > 1) {
+    for($week = 1; $week <= $numberOfReportsToGenerate; $week++) {
+
+      $reportWeekStartDay = getLastReportWeekEndDayFromNextReportWeekEndDay($reportWeekStartDay);
+
+      $reportWeekEndDay = getLastReportWeekEndDayFromNextReportWeekEndDay($reportWeekEndDay);
+
+      calculateLocationTaskMetrics($dbSlave, $dbMaster, $Location, $reportWeekStartDay, $reportWeekEndDay);
+
+      calculateLocationTaskGroupMetrics($dbSlave, $dbMaster, $Location, $reportWeekStartDay, $reportWeekEndDay);
+    }
+  }
+}
+
+function generateDivisionMetrics($dbSlave, $dbMaster, $Division, $nextReportWeekEndDay, $numberOfReportsToGenerate) {
+
+
+  if($numberOfReportsToGenerate == 1) {
+
+    $reportWeekEndDay = $nextReportWeekEndDay;
+
+  } else {
+
+    $reportWeekEndDay = getLastReportWeekEndDayFromNextReportWeekEndDay($nextReportWeekEndDay);
+
+  }
+
+  $reportWeekStartDay = getReportWeekStartDayFromEndDay($reportWeekEndDay);
+
+  //Calculate for the last week.
+  calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Division, $reportWeekStartDay, $reportWeekEndDay);
+
+  //This generates additional division metric reports
+  if($numberOfReportsToGenerate > 1) {
+    for($week = 1; $week <= $numberOfReportsToGenerate; $week++) {
+      $reportWeekStartDay = getLastReportWeekEndDayFromNextReportWeekEndDay($reportWeekStartDay);
+      $reportWeekEndDay = getLastReportWeekEndDayFromNextReportWeekEndDay($reportWeekEndDay);
+      calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Division, $reportWeekStartDay, $reportWeekEndDay);
+    }
+  }
+
+
+}
+
+function calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Division, $reportWeekStartDay, $reportWeekEndDay) {
+
+  $location_IDs = getLocationIdsFromDivision($dbSlave, $Division->id);
+
+  $totalLocations = count($location_IDs);
+
+  if($totalLocations > 0) {
+
+    $Results = get_summary_from_multiple_locations_between_two_dates($dbSlave, $location_IDs, $reportWeekStartDay, $reportWeekEndDay);
+
+    if($Results) {
 
       //Maybe calculate completed percentage here?
 
@@ -76,42 +198,37 @@ while ($row = $sth->fetch()) {
 
       }
 
-      
-
-      $totalLocations = count($location_IDs);
-
       $q3 = $dbMaster->prepare("INSERT INTO weekly_division_task_metrics (organization,division,week_end_day,completed_tasks,missed_tasks,violations, unresolved_violations, locations, location_with_completed_task,completion_percentage) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE completed_tasks = ?, missed_tasks = ?, violations = ?, unresolved_violations = ?, locations = ?, location_with_completed_task = ?, completion_percentage = ?");
 
-      $q3->execute(array($Organization->id, $Division->id, $reportWeekEndDay, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
+      $q3->execute(array($Division->organization, $Division->id, $reportWeekEndDay, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
     }
   }
-
-	echo "\n";
 }
 
-echo "\n";
+function getNumberOfDaysBetweenTwoDays($day1, $day2) {
+  return date_diff(
+        date_create($day2),  
+        date_create($day1)
+    )->format('%a');
+}
 
-$time_elapsed_secs = microtime(true) - $start;
-
-echo 'Total Execution Time: ' . $time_elapsed_secs . ' Seconds';
-
-echo "\n";
-
-function get_summary_from_multiple_locations_between_two_dates($db, $location_IDs, $dateTo, $dateFrom) {
+function get_summary_from_multiple_locations_between_two_dates($db, $location_IDs, $reportWeekStartDay, $reportWeekEndDay) {
 
   $location_array_implosions = implode(',', $location_IDs);
 
   //Run the magical query
-  $stmt = $db->prepare("SELECT count(R.id) total, sum(case when R.completed = 'Y' AND R.task_block IS NOT NULL then 1 else 0 end) completed_scheduled, sum(case when R.completed = 'N' then 1 else 0 end) missed, sum(case when R.completed = 'NA' then 1 else 0 end) notavailable, sum(case when R.corrective_action IS NOT NULL AND completed = 'Y' then 1 else 0 end) violations, sum(case when R.completed = 'Y' AND R.task_block IS NULL then 1 else 0 end) completed_not_scheduled from task_result R WHERE R.location IN (" . $location_array_implosions . ") AND R.day BETWEEN ? AND ? ORDER BY violations DESC;",array($dateFrom->format("Y-m-d"),$dateTo->format("Y-m-d")));
+  $r = $db->prepare("SELECT count(R.id) total, sum(case when R.completed = 'Y' AND R.task_block IS NOT NULL then 1 else 0 end) completed_scheduled, sum(case when R.completed = 'N' then 1 else 0 end) missed, sum(case when R.completed = 'NA' then 1 else 0 end) notavailable, sum(case when R.corrective_action IS NOT NULL AND completed = 'Y' then 1 else 0 end) violations, sum(case when R.completed = 'Y' AND R.task_block IS NULL then 1 else 0 end) completed_not_scheduled from task_result R WHERE R.location IN (" . $location_array_implosions . ") AND R.day BETWEEN ? AND ? ORDER BY violations DESC;");
 
-  return $stmt->fetch();
+  $r->execute(array($reportWeekStartDay, $reportWeekEndDay));
+
+  return $r->fetch(PDO::FETCH_OBJ);
 }
 
 function getLocationIdsFromDivision($db, $DivisionId) {
 
   $LocationIds = array();
 
-  $r = $db->prepare("SELECT * FROM organization_division_location WHERE organization_division = ?");
+  $r = $db->prepare("SELECT location.id AS location FROM organization_district_location ODL LEFT JOIN organization_district ON organization_district.id = ODL.organization_district LEFT JOIN location ON location.id = ODL.location WHERE organization_district.organization_division = ?");
 
   $r->execute(array($DivisionId));
 
@@ -127,7 +244,7 @@ function getLocationIdsFromDivision($db, $DivisionId) {
 function getDivisionsFromOrganization($db, $OrganizationId) {
 
 	//We need to determine what tasks should be completed and what tasks have not been completed.
-	$r = $db->prepare("SELECT * FROM organization_division WHERE organization = ?");
+	$r = $db->prepare("SELECT organization_division.organization AS organization, organization_division.id, organization_division.name, groupeddtm.MaxWeekEndDay FROM organization_division INNER JOIN (SELECT division,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_division_task_metrics GROUP BY division) groupeddtm ON organization_division.id = groupeddtm.division WHERE organization_division.organization = ?");
 
 	$r->execute(array($OrganizationId));
 
@@ -135,14 +252,55 @@ function getDivisionsFromOrganization($db, $OrganizationId) {
 
 }
 
-function getDivisionsFromOrganization($db, $OrganizationId) {
+function getLocationsFromOrganization($db, $OrganizationId) {
 
   //We need to determine what tasks should be completed and what tasks have not been completed.
-  $r = $db->prepare("SELECT location.id AS location,location.timezone FROM organization_location LEFT JOIN location ON location.id = organization_location.location WHERE organization = ?");
+  $r = $db->prepare("SELECT organization_location.organization, location.name, location.id AS id,location.timezone, groupedltm.MaxWeekEndDay FROM organization_location LEFT JOIN location ON location.id = organization_location.location INNER JOIN (SELECT location,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_location_task_metrics GROUP BY location) groupedltm ON organization_location.location = groupedltm.location WHERE organization_location.organization = ?");
 
   $r->execute(array($OrganizationId));
 
   return $r->fetchAll(PDO::FETCH_OBJ);
+
+}
+
+function getNextReportWeekEndDay($timezone, $dayWeekStarts) {
+
+  $timeAtLocation = new DateTime("now", new DateTimeZone($timezone));
+
+  $currentDayAtLocation = $timeAtLocation->format('N');
+
+  if($currentDayAtLocation == $dayWeekStarts) {
+
+    $mostRecentReportEnded = $timeAtLocation->sub(new DateInterval('P1D'));
+
+  } else if($currentDayAtLocation > $dayWeekStarts) {
+
+    $daysLastReportEnded = $currentDayAtLocation - $dayWeekStarts + 1;
+
+    $mostRecentReportEnded = $timeAtLocation->sub(new DateInterval('P' . $daysLastReportEnded . 'D'));
+
+  } else {
+
+    $daysLastReportEnded = 7 - ($dayWeekStarts - $currentDayAtLocation) + 1;
+
+    $mostRecentReportEnded = $timeAtLocation->sub(new DateInterval('P' . $daysLastReportEnded . 'D'));
+
+  }
+
+  $mostRecentReportEnded->add(new DateInterval('P7D'));
+
+  return $mostRecentReportEnded->format("Y-m-d");
+
+}
+
+function getCurrentReportEndDay($timezone) {
+
+  $currentReportEndDayDateTime = new DateTime("now", new DateTimeZone($timezone));
+
+  //To ensure we have a full days worth of data.
+  $currentReportEndDayDateTime->sub(new DateInterval('P1D'));
+
+  return $currentReportEndDayDateTime->format('Y-m-d');
 
 }
 
@@ -202,86 +360,77 @@ function getReportWeeksFromOrganization($timezone, $dayWeekStarts) {
 
 }
 
-function calculateLocationTaskGroupMetrics($dbSlave, $dbMaster, $Location, $reportWeeks) {
+function calculateLocationTaskGroupMetrics($dbSlave, $dbMaster, $Location, $reportWeekEndDay) {
 
-  foreach($reportWeeks AS $reportWeek) {
+  $reportWeekStartDay = getReportWeekStartDayFromEndDay($reportWeekEndDay);
 
-    $reportWeekEndDay = $reportWeek->end_day->format("Y-m-d");
+  $TaskBlocks = get_task_blocks_from_location_with_completed_task_for_this_week($dbSlave, $Location->id, $reportWeekStartDay, $reportWeekEndDay);
 
-    $TaskBlocks = get_task_blocks_from_location_with_completed_task_for_this_week($dbSlave, $Location->location, $reportWeek);
+  if($TaskBlocks && count($TaskBlocks) > 0) {
 
-    if($TaskBlocks && count($TaskBlocks) > 0) {
+    foreach($TaskBlocks AS $TaskBlock) {
 
-      foreach($TaskBlocks AS $TaskBlock) {
+      $data_is_valid = false;
 
-        $data_is_valid = false;
+      $q1 = $dbSlave->prepare("SELECT MIN(marked_at) AS start_time, MAX(marked_at) AS stop_time, count(DISTINCT(task)) AS total FROM task_result WHERE completed = 'Y' AND task_block = ? AND day BETWEEN ? AND ? GROUP BY task_block,day");
 
-        $q1 = $dbSlave->prepare("SELECT MIN(marked_at) AS start_time, MAX(marked_at) AS stop_time, count(DISTINCT(task)) AS total FROM task_result WHERE completed = 'Y' AND task_block = ? AND day BETWEEN ? AND ? GROUP BY task_block,day");
+      $q1->execute(array($TaskBlock->task_block, $reportWeekStartDay, $reportWeekEndDay));
 
-        $q1->execute(array($TaskBlock->task_block, $reportWeek->start_day->format("Y-m-d"),$reportWeek->end_day->format("Y-m-d")));
+      $startTimeArr = [];
+      $stopTimeArr = [];
 
-        $startTimeArr = [];
-        $stopTimeArr = [];
+      $Results = $q1->fetchAll(PDO::FETCH_OBJ);
 
-        $Results = $q1->fetchAll(PDO::FETCH_OBJ);
+      foreach($Results AS $r) {
 
-        foreach($Results AS $r) {
+        if($r->total > 2) {
+          if(!empty($r->start_time)) {
+            $start_time_in_seconds_from_midnight = utc_to_local($r->start_time, $Location->timezone, "H") * 60 + utc_to_local($r->start_time, $Location->timezone, "i") + utc_to_local($r->start_time, $Location->timezone, "s");
 
-          if($r->total > 2) {
-            if(!empty($r->start_time)) {
-              $start_time_in_seconds_from_midnight = utc_to_local($r->start_time, $Location->timezone, "H") * 60 + utc_to_local($r->start_time, $Location->timezone, "i") + utc_to_local($r->start_time, $Location->timezone, "s");
+            
+          }
 
-              
-            }
-
-            if(!empty($r->stop_time)) {
-              $stop_time_in_seconds_from_midnight = utc_to_local($r->stop_time, $Location->timezone, "H") * 60 * 60 + utc_to_local($r->stop_time, $Location->timezone, "i") * 60 + utc_to_local($r->stop_time, $Location->timezone, "s");
+          if(!empty($r->stop_time)) {
+            $stop_time_in_seconds_from_midnight = utc_to_local($r->stop_time, $Location->timezone, "H") * 60 * 60 + utc_to_local($r->stop_time, $Location->timezone, "i") * 60 + utc_to_local($r->stop_time, $Location->timezone, "s");
 
 
-            }
+          }
 
-            if($start_time_in_seconds_from_midnight && $stop_time_in_seconds_from_midnight) {
-              $time_to_complete = get_timespan_between_two_datetimes($r->start_time, $r->stop_time);
+          if($start_time_in_seconds_from_midnight && $stop_time_in_seconds_from_midnight) {
+            $time_to_complete = get_timespan_between_two_datetimes($r->start_time, $r->stop_time);
 
-              if($time_to_complete < 3600) {
-                //Include!
-                $startTimeArr[] = $start_time_in_seconds_from_midnight;
-                $stopTimeArr[] = $stop_time_in_seconds_from_midnight;
-              }
+            if($time_to_complete < 3600) {
+              //Include!
+              $startTimeArr[] = $start_time_in_seconds_from_midnight;
+              $stopTimeArr[] = $stop_time_in_seconds_from_midnight;
             }
           }
         }
+      }
 
-        if(count($startTimeArr) > 1 && count($stopTimeArr) > 1) {
+      if(count($startTimeArr) > 1 && count($stopTimeArr) > 1) {
 
-          $averageStartTime = array_sum($startTimeArr) / count($startTimeArr);
-          $averageStopTime = array_sum($stopTimeArr) / count($stopTimeArr);
+        $averageStartTime = array_sum($startTimeArr) / count($startTimeArr);
+        $averageStopTime = array_sum($stopTimeArr) / count($stopTimeArr);
 
-          $startTimeVolatility = stats_standard_deviation($startTimeArr);
-          $stopTimeVolatility = stats_standard_deviation($stopTimeArr);
+        $startTimeVolatility = stats_standard_deviation($startTimeArr);
+        $stopTimeVolatility = stats_standard_deviation($stopTimeArr);
 
-          $q3 = $dbMaster->prepare("INSERT INTO weekly_location_task_group_metrics (location,task_group,week_end_day,average_start_time_seconds_from_midnight,average_start_time_volatility,average_stop_time_seconds_from_midnight,average_stop_time_volatility) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE average_start_time_seconds_from_midnight = ?, average_start_time_volatility = ?, average_stop_time_seconds_from_midnight = ?, average_stop_time_volatility = ?");
+        $q3 = $dbMaster->prepare("INSERT INTO weekly_location_task_group_metrics (location,task_group,week_end_day,average_start_time_seconds_from_midnight,average_start_time_volatility,average_stop_time_seconds_from_midnight,average_stop_time_volatility) VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE average_start_time_seconds_from_midnight = ?, average_start_time_volatility = ?, average_stop_time_seconds_from_midnight = ?, average_stop_time_volatility = ?");
 
-          $q3->execute(array($Location->location, $TaskBlock->task_block, $reportWeekEndDay, $averageStartTime, $startTimeVolatility, $averageStopTime, $stopTimeVolatility, $averageStartTime, $startTimeVolatility, $averageStopTime, $stopTimeVolatility));
-        }
+        $q3->execute(array($Location->id, $TaskBlock->task_block, $reportWeekEndDay, $averageStartTime, $startTimeVolatility, $averageStopTime, $stopTimeVolatility, $averageStartTime, $startTimeVolatility, $averageStopTime, $stopTimeVolatility));
       }
     }
-
   }
 
 }
 
-function calculateLocationTaskMetrics($dbSlave, $dbMaster, $organizationId, $locationId, $reportWeeks) {
-  foreach($reportWeeks AS $reportWeek) {
+function calculateLocationTaskMetrics($dbSlave, $dbMaster, $Location, $reportWeekStartDay, $reportWeekEndDay) {
 
-    $reportWeekEndDay = $reportWeek->end_day->format("Y-m-d");
+    //Check to see if we have an entry with this reportEndDay
+    $Results = get_summary_from_single_location_between_two_dates($dbSlave, $Location->id, $reportWeekStartDay, $reportWeekEndDay);
 
-    echo $reportWeekEndDay;
-    echo "\n";
-
-    $Results = get_summary_from_single_location_between_two_dates($dbSlave, $locationId, $reportWeek->start_day, $reportWeek->end_day);
-
-    $ViolationObj = get_unresolved_violations_from_location_between_two_dates($dbSlave, $locationId, $reportWeek->start_day, $reportWeek->end_day);
+    $ViolationObj = get_unresolved_violations_from_location_between_two_dates($dbSlave, $Location->id, $reportWeekStartDay, $reportWeekEndDay);
 
     $locationsWithCompletedTask = 0;
 
@@ -301,29 +450,44 @@ function calculateLocationTaskMetrics($dbSlave, $dbMaster, $organizationId, $loc
 
     $r = $dbMaster->prepare("INSERT INTO weekly_location_task_metrics (organization, location,week_end_day,completed_tasks,missed_tasks,violations, violations_resolved, violation_follow_ups_required, completion_percentage) VALUES (?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE completed_tasks = ?, missed_tasks = ?, violations = ?, violations_resolved = ?, violation_follow_ups_required = ?, completion_percentage = ?");
 
-    $r->execute(array($organizationId,$locationId, $reportWeekEndDay, $Results->completed_scheduled, $Results->missed, $Results->violations, $ViolationObj->resolvedViolations, $ViolationObj->followUpsRequired, $completionPercentage, $Results->completed_scheduled, $Results->missed, $Results->violations, $ViolationObj->resolvedViolations, $ViolationObj->followUpsRequired, $completionPercentage));
-  }
+    $r->execute(array($Location->organization,$Location->id, $reportWeekEndDay, $Results->completed_scheduled, $Results->missed, $Results->violations, $ViolationObj->resolvedViolations, $ViolationObj->followUpsRequired, $completionPercentage, $Results->completed_scheduled, $Results->missed, $Results->violations, $ViolationObj->resolvedViolations, $ViolationObj->followUpsRequired, $completionPercentage));
 }
 
-function get_task_blocks_from_location_with_completed_task_for_this_week($db, $locationId, $reportWeek) {
+function getLastReportWeekEndDayFromNextReportWeekEndDay($nextReportWeekEndDay) {
+  $reportWeekEndDay = new DateTime($nextReportWeekEndDay);
+
+  $reportWeekEndDay->sub(new DateInterval('P7D'));
+
+  return $reportWeekEndDay->format('Y-m-d');
+}
+
+function getReportWeekStartDayFromEndDay($reportWeekEndDay) {
+  $reportWeekStartDay = new DateTime($reportWeekEndDay);
+
+  $reportWeekStartDay->sub(new DateInterval('P6D'));
+
+  return $reportWeekStartDay->format('Y-m-d');
+}
+
+function get_task_blocks_from_location_with_completed_task_for_this_week($db, $locationId, $reportWeekStartDay, $reportWeekEndDay) {
 
   $r = $db->prepare("SELECT DISTINCT(task_block) AS task_block FROM task_result WHERE day BETWEEN ? AND ? AND location = ? AND completed = 'Y'");
 
-  $r->execute(array($reportWeek->start_day->format("Y-m-d"), $reportWeek->end_day->format("Y-m-d"), $locationId));
+  $r->execute(array($reportWeekStartDay, $reportWeekEndDay, $locationId));
 
   return $r->fetchAll(PDO::FETCH_OBJ);
 }
 
-function get_summary_from_single_location_between_two_dates($db, $locationId, $dateFrom, $dateTo) {
+function get_summary_from_single_location_between_two_dates($db, $locationId, $reportWeekStartDay, $reportWeekEndDay) {
   //Run the magical query
   $r = $db->prepare("SELECT count(R.id) total, sum(case when R.completed = 'Y' AND R.task_block IS NOT NULL then 1 else 0 end) completed_scheduled, sum(case when R.completed = 'N' then 1 else 0 end) missed, sum(case when R.completed = 'NA' then 1 else 0 end) notavailable, sum(case when R.corrective_action IS NOT NULL AND completed = 'Y' then 1 else 0 end) violations, sum(case when R.completed = 'Y' AND R.task_block IS NULL then 1 else 0 end) completed_not_scheduled from task_result R WHERE R.location = ? AND R.day BETWEEN ? AND ? ORDER BY violations DESC;");
 
-  $r->execute(array($locationId, $dateFrom->format("Y-m-d"),$dateTo->format("Y-m-d")));
+  $r->execute(array($locationId, $reportWeekStartDay, $reportWeekEndDay));
 
 	return $r->fetch(PDO::FETCH_OBJ);
 }
 
-function get_unresolved_violations_from_location_between_two_dates($db, $locationId, $dateFrom, $dateTo) {
+function get_unresolved_violations_from_location_between_two_dates($db, $locationId, $reportWeekStartDay, $reportWeekEndDay) {
 
   $ViolationObj = new stdClass();
 
@@ -335,7 +499,7 @@ function get_unresolved_violations_from_location_between_two_dates($db, $locatio
 
   $r = $db->prepare("SELECT task_result.id AS taskResultID,task_result.result, task.id AS taskID, task_result.day, task.title, task_result.corrective_action AS description, task_result.marked_at, task_result.task_block AS taskBlockID FROM task_result LEFT JOIN task ON task.id = task_result.task WHERE task_result.location = ? AND task_result.completed = 'Y' AND task_result.corrective_action IS NOT NULL AND task_result.day BETWEEN ? AND ? ORDER BY task_result.id DESC");
 
-  $r->execute(array($locationId, $dateFrom->format("Y-m-d"), $dateTo->format("Y-m-d")));
+  $r->execute(array($locationId, $reportWeekStartDay, $reportWeekEndDay));
 
   $Violations = $r->fetchAll(PDO::FETCH_OBJ);
 
@@ -363,6 +527,7 @@ function get_unresolved_violations_from_location_between_two_dates($db, $locatio
   }
 
   $ViolationObj->resolvedViolations = $resolvedViolations;
+
   $ViolationObj->followUpsRequired = $followUpsRequired;
 
   return $ViolationObj;
