@@ -378,7 +378,7 @@ function getDivisionsFromOrganization($db, $OrganizationId) {
 function getLocationsFromOrganization($db, $OrganizationId) {
 
   //We need to determine what tasks should be completed and what tasks have not been completed.
-  $r = $db->prepare("SELECT organization_location.organization, location.name, location.id AS id,location.timezone, groupedltm.MaxWeekEndDay FROM organization_location LEFT JOIN location ON location.id = organization_location.location INNER JOIN (SELECT location,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_location_task_metrics GROUP BY location) groupedltm ON organization_location.location = groupedltm.location WHERE organization_location.organization = ?");
+  $r = $db->prepare("SELECT organization_location.organization, location.name, location.id AS id,location.timezone, groupedltm.MaxWeekEndDay FROM organization_location LEFT JOIN location ON location.id = organization_location.location LEFT JOIN (SELECT location,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_location_task_metrics GROUP BY location) groupedltm ON organization_location.location = groupedltm.location WHERE organization_location.organization = ?");
 
   $r->execute(array($OrganizationId));
 
