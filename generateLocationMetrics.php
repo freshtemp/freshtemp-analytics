@@ -281,10 +281,16 @@ function calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Divisio
 
       $completionPercentage = 0;
 
-      $totalCompletedPlusMissed = $Results->completed_scheduled + $Results->missed;
+      $completedScheduledTasks = 0;
+
+      if($Results->completed_scheduled) {
+        $completedScheduledTasks = $Results->completed_scheduled;
+      }
+
+      $totalCompletedPlusMissed = $completedScheduledTasks + $Results->missed;
 
       if($totalCompletedPlusMissed > 0) {
-        $completionPercentage = $Results->completed_scheduled / $totalCompletedPlusMissed * 100;
+        $completionPercentage = $completedScheduledTasks / $totalCompletedPlusMissed * 100;
 
         //We should be smarter here...  Or triggering an event to handle.
         if($completionPercentage > 100) {
@@ -295,7 +301,7 @@ function calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Divisio
 
       $q3 = $dbMaster->prepare("INSERT INTO weekly_division_task_metrics (organization,division,week_end_day,completed_tasks,missed_tasks,violations, unresolved_violations, locations, location_with_completed_task,completion_percentage) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE completed_tasks = ?, missed_tasks = ?, violations = ?, unresolved_violations = ?, locations = ?, location_with_completed_task = ?, completion_percentage = ?");
 
-      $q3->execute(array($Division->organization, $Division->id, $reportWeekEndDay, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $Results->completed_scheduled, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
+      $q3->execute(array($Division->organization, $Division->id, $reportWeekEndDay, $completedScheduledTasks, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $completedScheduledTasks, $Results->missed, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
     }
   }
 }
