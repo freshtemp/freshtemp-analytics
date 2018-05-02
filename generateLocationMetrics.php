@@ -16,7 +16,7 @@ $dbMaster->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 
 //Only check for tasks marked null.
-$sth = $dbMaster->prepare("SELECT id,name,timezone,day_week_starts FROM organization WHERE compute_analytics = 'Y'");
+$sth = $dbMaster->prepare("SELECT id,name,timezone,day_week_starts FROM organization WHERE compute_analytics = 'Y' AND id = 41");
 
 $sth->execute();
 
@@ -36,6 +36,8 @@ while ($row = $sth->fetch()) {
 
   //Computer analytics for each location
 	foreach($Locations AS $Location) {
+
+    echo $Location->name . "\n";
 
     if($Location->MaxWeekEndDay) {
 
@@ -354,7 +356,7 @@ function getLocationIdsFromDivision($db, $DivisionId) {
 function getDistrictsFromOrganization($db, $OrganizationId) {
 
 	//We need to determine what tasks should be completed and what tasks have not been completed.
-	$r = $db->prepare("SELECT organization_district.organization AS organization, organization_district.id, organization_district.name, groupeddtm.MaxWeekEndDay FROM organization_district INNER JOIN (SELECT district,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_district_task_metrics GROUP BY district) groupeddtm ON organization_district.id = groupeddtm.district WHERE organization_district.organization = ?");
+	$r = $db->prepare("SELECT organization_district.organization AS organization, organization_district.id, organization_district.name, groupeddtm.MaxWeekEndDay FROM organization_district LEFT JOIN (SELECT district,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_district_task_metrics GROUP BY district) groupeddtm ON organization_district.id = groupeddtm.district WHERE organization_district.organization = ?");
 
 	$r->execute(array($OrganizationId));
 
@@ -366,7 +368,7 @@ function getDistrictsFromOrganization($db, $OrganizationId) {
 function getDivisionsFromOrganization($db, $OrganizationId) {
 
   //We need to determine what tasks should be completed and what tasks have not been completed.
-  $r = $db->prepare("SELECT organization_division.organization AS organization, organization_division.id, organization_division.name, groupeddtm.MaxWeekEndDay FROM organization_division INNER JOIN (SELECT division,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_division_task_metrics GROUP BY division) groupeddtm ON organization_division.id = groupeddtm.division WHERE organization_division.organization = ?");
+  $r = $db->prepare("SELECT organization_division.organization AS organization, organization_division.id, organization_division.name, groupeddtm.MaxWeekEndDay FROM organization_division LEFT JOIN (SELECT division,MAX(week_end_day) AS MaxWeekEndDay FROM weekly_division_task_metrics GROUP BY division) groupeddtm ON organization_division.id = groupeddtm.division WHERE organization_division.organization = ?");
 
   $r->execute(array($OrganizationId));
 
