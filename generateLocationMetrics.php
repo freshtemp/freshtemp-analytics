@@ -242,6 +242,12 @@ function calculateMetricsForDistrictBetweenTwoDays($dbSlave, $dbMaster, $Distric
 
       $completionPercentage = 0;
 
+      $violations = 0;
+
+      if($Results->violations) {
+        $violations = $Results->violations;
+      }
+
       $missedTasks = 0;
 
       if($Results->missed) {
@@ -268,7 +274,7 @@ function calculateMetricsForDistrictBetweenTwoDays($dbSlave, $dbMaster, $Distric
 
       $q3 = $dbMaster->prepare("INSERT INTO weekly_district_task_metrics (organization,district,week_end_day,completed_tasks,missed_tasks,violations, unresolved_violations, locations, location_with_completed_task,completion_percentage) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE completed_tasks = ?, missed_tasks = ?, violations = ?, unresolved_violations = ?, locations = ?, location_with_completed_task = ?, completion_percentage = ?");
 
-      $q3->execute(array($District->organization, $District->id, $reportWeekEndDay, $completedScheduledTasks, $missedTasks, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $completedScheduledTasks, $missedTasks, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
+      $q3->execute(array($District->organization, $District->id, $reportWeekEndDay, $completedScheduledTasks, $missedTasks, $violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $completedScheduledTasks, $missedTasks, $violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
     }
   }
 }
@@ -292,6 +298,12 @@ function calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Divisio
       $locationsWithCompletedTask = 0;
 
       $completionPercentage = 0;
+
+      $violations = 0;
+
+      if($Results->violations) {
+        $violations = $Results->violations;
+      }
 
       $missedTasks = 0;
 
@@ -319,7 +331,7 @@ function calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Divisio
 
       $q3 = $dbMaster->prepare("INSERT INTO weekly_division_task_metrics (organization,division,week_end_day,completed_tasks,missed_tasks,violations, unresolved_violations, locations, location_with_completed_task,completion_percentage) VALUES (?,?,?,?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE completed_tasks = ?, missed_tasks = ?, violations = ?, unresolved_violations = ?, locations = ?, location_with_completed_task = ?, completion_percentage = ?");
 
-      $q3->execute(array($Division->organization, $Division->id, $reportWeekEndDay, $completedScheduledTasks, $missedTasks, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $completedScheduledTasks, $missedTasks, $Results->violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
+      $q3->execute(array($Division->organization, $Division->id, $reportWeekEndDay, $completedScheduledTasks, $missedTasks, $violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage, $completedScheduledTasks, $missedTasks, $violations, $unresolved_violations, $totalLocations, $locationsWithCompletedTask, $completionPercentage));
     }
   }
 }
