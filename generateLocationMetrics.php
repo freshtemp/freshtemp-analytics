@@ -16,7 +16,7 @@ $dbMaster->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
 
 //Only check for tasks marked null.
-$sth = $dbMaster->prepare("SELECT id,name,timezone,day_week_starts FROM organization WHERE compute_analytics = 'Y' AND id = 41");
+$sth = $dbMaster->prepare("SELECT id,name,timezone,day_week_starts FROM organization WHERE compute_analytics = 'Y'");
 
 $sth->execute();
 
