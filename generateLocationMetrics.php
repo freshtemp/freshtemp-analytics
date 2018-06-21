@@ -348,7 +348,7 @@ function get_summary_from_multiple_locations_between_two_dates($db, $location_ID
   $location_array_implosions = implode(',', $location_IDs);
 
   //Run the magical query
-  $r = $db->prepare("SELECT count(R.id) total, sum(case when R.completed = 'Y' AND R.task_block IS NOT NULL then 1 else 0 end) completed_scheduled, sum(case when R.completed = 'N' then 1 else 0 end) missed, sum(case when R.completed = 'NA' then 1 else 0 end) notavailable, sum(case when R.corrective_action IS NOT NULL AND completed = 'Y' then 1 else 0 end) violations, sum(case when R.completed = 'Y' AND R.task_block IS NULL then 1 else 0 end) completed_not_scheduled from task_result R WHERE R.location IN (" . $location_array_implosions . ") AND R.day BETWEEN ? AND ? ORDER BY violations DESC;");
+  $r = $db->prepare("SELECT count(R.id) total, sum(case when (R.completed = 'Y' OR R.completed = 'NA') AND R.task_block IS NOT NULL then 1 else 0 end) completed_scheduled, sum(case when R.completed = 'N' then 1 else 0 end) missed, sum(case when R.completed = 'NA' then 1 else 0 end) notavailable, sum(case when R.corrective_action IS NOT NULL AND completed = 'Y' then 1 else 0 end) violations, sum(case when R.completed = 'Y' AND R.task_block IS NULL then 1 else 0 end) completed_not_scheduled from task_result R WHERE R.location IN (" . $location_array_implosions . ") AND R.day BETWEEN ? AND ? ORDER BY violations DESC;");
 
   $r->execute(array($reportWeekStartDay, $reportWeekEndDay));
 
@@ -641,7 +641,7 @@ function get_task_blocks_from_location_with_completed_task_for_this_week($db, $l
 
 function get_summary_from_single_location_between_two_dates($db, $locationId, $reportWeekStartDay, $reportWeekEndDay) {
   //Run the magical query
-  $r = $db->prepare("SELECT count(R.id) total, sum(case when R.completed = 'Y' AND R.task_block IS NOT NULL then 1 else 0 end) completed_scheduled, sum(case when R.completed = 'N' then 1 else 0 end) missed, sum(case when R.completed = 'NA' then 1 else 0 end) notavailable, sum(case when R.corrective_action IS NOT NULL AND completed = 'Y' then 1 else 0 end) violations, sum(case when R.completed = 'Y' AND R.task_block IS NULL then 1 else 0 end) completed_not_scheduled from task_result R WHERE R.location = ? AND R.day BETWEEN ? AND ? ORDER BY violations DESC;");
+  $r = $db->prepare("SELECT count(R.id) total, sum(case when (R.completed = 'Y' OR R.completed = 'NA') AND R.task_block IS NOT NULL then 1 else 0 end) completed_scheduled, sum(case when R.completed = 'N' then 1 else 0 end) missed, sum(case when R.completed = 'NA' then 1 else 0 end) notavailable, sum(case when R.corrective_action IS NOT NULL AND completed = 'Y' then 1 else 0 end) violations, sum(case when R.completed = 'Y' AND R.task_block IS NULL then 1 else 0 end) completed_not_scheduled from task_result R WHERE R.location = ? AND R.day BETWEEN ? AND ? ORDER BY violations DESC;");
 
   $r->execute(array($locationId, $reportWeekStartDay, $reportWeekEndDay));
 
