@@ -135,6 +135,9 @@ echo 'Total Execution Time: ' . $time_elapsed_secs . ' Seconds';
 echo "\n";
 
 function generateLocationMetrics($dbSlave, $dbMaster, $Location, $nextReportWeekEndDay, $numberOfReportsToGenerate) {
+
+  echo "Generating Location Metrics Reports: " . $numberOfReportsToGenerate . "\n";
+
   if($numberOfReportsToGenerate == 1) {
 
     $reportWeekEndDay = $nextReportWeekEndDay;
@@ -168,6 +171,8 @@ function generateLocationMetrics($dbSlave, $dbMaster, $Location, $nextReportWeek
 
 function generateDistrictMetrics($dbSlave, $dbMaster, $District, $nextReportWeekEndDay, $numberOfReportsToGenerate) {
 
+  echo "Generating District Metrics Reports: " . $numberOfReportsToGenerate . "\n";
+
 
   if($numberOfReportsToGenerate == 1) {
 
@@ -195,6 +200,8 @@ function generateDistrictMetrics($dbSlave, $dbMaster, $District, $nextReportWeek
 }
 
 function generateDivisionMetrics($dbSlave, $dbMaster, $Division, $nextReportWeekEndDay, $numberOfReportsToGenerate) {
+
+  echo "Generating Division Metrics Reports: " . $numberOfReportsToGenerate . "\n";
 
 
   if($numberOfReportsToGenerate == 1) {
@@ -230,7 +237,7 @@ function calculateMetricsForDistrictBetweenTwoDays($dbSlave, $dbMaster, $Distric
 
   if($totalLocations > 0) {
 
-    $Results = get_summary_from_multiple_locations_between_two_dates($dbSlave, $location_IDs, $reportWeekStartDay, $reportWeekEndDay);
+    $Results = get_summary_from_multiple_locations_between_two_dates($dbMaster, $location_IDs, $reportWeekStartDay, $reportWeekEndDay);
 
     if($Results) {
 
@@ -281,13 +288,15 @@ function calculateMetricsForDistrictBetweenTwoDays($dbSlave, $dbMaster, $Distric
 
 function calculateMetricsForDivisionBetweenTwoDays($dbSlave, $dbMaster, $Division, $reportWeekStartDay, $reportWeekEndDay) {
 
-  $location_IDs = getLocationIdsFromDivision($dbSlave, $Division->id);
+
+
+  $location_IDs = getLocationIdsFromDivision($dbMaster, $Division->id);
 
   $totalLocations = count($location_IDs);
 
   if($totalLocations > 0) {
 
-    $Results = get_summary_from_multiple_locations_between_two_dates($dbSlave, $location_IDs, $reportWeekStartDay, $reportWeekEndDay);
+    $Results = get_summary_from_multiple_locations_between_two_dates($dbMaster, $location_IDs, $reportWeekStartDay, $reportWeekEndDay);
 
     if($Results) {
 
@@ -589,9 +598,9 @@ function calculateLocationTaskGroupMetrics($dbSlave, $dbMaster, $Location, $repo
 function calculateLocationTaskMetrics($dbSlave, $dbMaster, $Location, $reportWeekStartDay, $reportWeekEndDay) {
 
     //Check to see if we have an entry with this reportEndDay
-    $Results = get_summary_from_single_location_between_two_dates($dbSlave, $Location->id, $reportWeekStartDay, $reportWeekEndDay);
+    $Results = get_summary_from_single_location_between_two_dates($dbMaster, $Location->id, $reportWeekStartDay, $reportWeekEndDay);
 
-    $ViolationObj = get_unresolved_violations_from_location_between_two_dates($dbSlave, $Location->id, $reportWeekStartDay, $reportWeekEndDay);
+    $ViolationObj = get_unresolved_violations_from_location_between_two_dates($dbMaster, $Location->id, $reportWeekStartDay, $reportWeekEndDay);
 
     $locationsWithCompletedTask = 0;
 
