@@ -2,6 +2,8 @@
 
 include ('SensorSummaryByDayClass.php');
 
+$start = microtime(true);
+
 date_default_timezone_set('UTC');
 
 // define BASEPATH so we can load the necessary config entries, then load it
@@ -16,33 +18,38 @@ $sth = $dbMaster->prepare("SELECT S.id AS sensorID,L.id AS locationID, S.target 
 
 $sth->execute();
 
+$numberOfDaysToCalculateMetrics = 10;
+
 while ($row = $sth->fetchObject()) {
 
-  $start = microtime(true);
+  while($numberOfDaysToCalculateMetrics > 1) {
 
-  $Day = getYesterdayAtLocationByTimeZone($row->timezone, 'Y-m-d');
+    $Day = getYesterdayAtLocationByTimeZone($row->timezone, 'Y-m-d', $numberOfDaysToCalculateMetrics);
 
-  $SensorSummaryByDay = new SensorSummaryByDayClass($row->locationID, $row->sensorID, $row->equipmentID, $Day, $row->timezone, $row->lower_limit, $row->upper_limit, $row->tx_interval);
+    $SensorSummaryByDay = new SensorSummaryByDayClass($row->locationID, $row->sensorID, $row->equipmentID, $Day, $row->timezone, $row->lower_limit, $row->upper_limit, $row->tx_interval);
 
-  //$SensorSummaryByDay->getNumberOfAlarmsTriggeredAndEnabled($dbMaster);
+    $SensorSummaryByDay->getNumberOfAlarmsTriggeredAndEnabled($dbMaster);
 
-  $SensorSummaryByDay->fetchAndAnalysisSensorData($dbMaster);
+    $SensorSummaryByDay->fetchAndAnalysisSensorData($dbMaster);
 
-  $SensorSummaryByDay->computeSensorMetrics();
- 
-  $SensorSummaryByDay->insertIntoDatabase($dbMaster);
+    $SensorSummaryByDay->computeSensorMetrics();
+   
+    $SensorSummaryByDay->insertIntoDatabase($dbMaster);
 
-  $time_elapsed_secs = microtime(true) - $start;
+    $time_elapsed_secs = microtime(true) - $start;
 
-  echo "\nLocation: " . $row->locationName . "\nTotal Execution Time: " . $time_elapsed_secs . " Seconds";
+    $numberOfDaysToCalculateMetrics--;
+  }
 }
 
+echo "\nLocation: " . $row->locationName . "\nTotal Execution Time: " . $time_elapsed_secs . " Seconds";
 
-function getYesterdayAtLocationByTimeZone($timezone, $dateFormat = 'Y-m-d') {
+
+function getYesterdayAtLocationByTimeZone($timezone, $dateFormat = 'Y-m-d', $numDaysToSubtract) {
 
   $timeAtLocation = new DateTime("now", new DateTimeZone($timezone));
 
-  $timeAtLocation->modify('-1 day');
+  $timeAtLocation->modify('-' . $numDaysToSubtract . ' day');
 
   return $timeAtLocation->format($dateFormat);
 }
