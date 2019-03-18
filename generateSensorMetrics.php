@@ -22,9 +22,9 @@ $numberOfDaysToCalculateMetrics = 10;
 
 while ($row = $sth->fetchObject()) {
 
-  while($numberOfDaysToCalculateMetrics > 1) {
+  for($days = 2; $days <= $numberOfDaysToCalculateMetrics; $days++) {
 
-    $Day = getYesterdayAtLocationByTimeZone($row->timezone, 'Y-m-d', $numberOfDaysToCalculateMetrics);
+    $Day = getYesterdayAtLocationByTimeZone($row->timezone, 'Y-m-d', $days);
 
     $SensorSummaryByDay = new SensorSummaryByDayClass($row->locationID, $row->sensorID, $row->equipmentID, $Day, $row->timezone, $row->lower_limit, $row->upper_limit, $row->tx_interval);
 
@@ -37,13 +37,8 @@ while ($row = $sth->fetchObject()) {
     $SensorSummaryByDay->insertIntoDatabase($dbMaster);
 
     $time_elapsed_secs = microtime(true) - $start;
-
-    $numberOfDaysToCalculateMetrics--;
   }
 }
-
-echo "\nLocation: " . $row->locationName . "\nTotal Execution Time: " . $time_elapsed_secs . " Seconds";
-
 
 function getYesterdayAtLocationByTimeZone($timezone, $dateFormat = 'Y-m-d', $numDaysToSubtract) {
 
