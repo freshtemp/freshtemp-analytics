@@ -18,28 +18,33 @@ $sth = $dbMaster->prepare("SELECT S.id AS sensorID,L.id AS locationID, S.target 
 
 $sth->execute();
 
+$numberOfDaysToCalculateMetrics = 10;
+
 while ($row = $sth->fetchObject()) {
 
-  $Day = getYesterdayAtLocationByTimeZone($row->timezone, 'Y-m-d');
+  for($days = 2; $days <= $numberOfDaysToCalculateMetrics; $days++) {
 
-  $SensorSummaryByDay = new SensorSummaryByDayClass($row->locationID, $row->sensorID, $row->equipmentID, $Day, $row->timezone, $row->lower_limit, $row->upper_limit, $row->tx_interval);
+    $Day = getYesterdayAtLocationByTimeZone($row->timezone, 'Y-m-d', $days);
 
-  $SensorSummaryByDay->getNumberOfAlarmsTriggeredAndEnabled($dbMaster);
+    $SensorSummaryByDay = new SensorSummaryByDayClass($row->locationID, $row->sensorID, $row->equipmentID, $Day, $row->timezone, $row->lower_limit, $row->upper_limit, $row->tx_interval);
 
-  $SensorSummaryByDay->fetchAndAnalysisSensorData($dbMaster);
+    $SensorSummaryByDay->getNumberOfAlarmsTriggeredAndEnabled($dbMaster);
 
-  $SensorSummaryByDay->computeSensorMetrics();
- 
-  $SensorSummaryByDay->insertIntoDatabase($dbMaster);
+    $SensorSummaryByDay->fetchAndAnalysisSensorData($dbMaster);
 
-  $time_elapsed_secs = microtime(true) - $start;
+    $SensorSummaryByDay->computeSensorMetrics();
+   
+    $SensorSummaryByDay->insertIntoDatabase($dbMaster);
+
+    $time_elapsed_secs = microtime(true) - $start;
+  }
 }
 
-function getYesterdayAtLocationByTimeZone($timezone, $dateFormat = 'Y-m-d') {
+function getYesterdayAtLocationByTimeZone($timezone, $dateFormat = 'Y-m-d', $numDaysToSubtract) {
 
   $timeAtLocation = new DateTime("now", new DateTimeZone($timezone));
 
-  $timeAtLocation->modify('-1 day');
+  $timeAtLocation->modify('-' . $numDaysToSubtract . ' day');
 
   return $timeAtLocation->format($dateFormat);
 }
