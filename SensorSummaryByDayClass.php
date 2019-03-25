@@ -14,9 +14,9 @@ class SensorSummaryByDayClass
 
     $this->Timezone = $Timezone;
 
-    $this->dayStartTimeUTC = $this->getUTCDateTimeFromDayAndHourMinuteSeconds('00:00:00');
+    $this->dayStartTimeUTC = $this->getUTCDateTimeFromDayAndHourMinuteSeconds('00:00:00', 'Y-m-d H:i:s');
 
-    $this->dayEndTimeUTC = $this->getUTCDateTimeFromDayAndHourMinuteSeconds('23:59:59');
+    $this->dayEndTimeUTC = $this->getUTCDateTimeFromDayAndHourMinuteSeconds('23:59:59', 'Y-m-d H:i:s');
 
     $this->lowerLimit = (float)$lowerLimit;
 
@@ -69,10 +69,10 @@ class SensorSummaryByDayClass
 
   }
 
-  public function getUTCDateTimeFromDayAndHourMinuteSeconds($HoursMinutesSeconds) {
-    $utcDateTime = DateTime::createFromFormat('Y-m-d H:i:s', $this->Day . ' ' . $HoursMinutesSeconds,new DateTimeZone($this->Timezone));
+  public function getUTCDateTimeFromDayAndHourMinuteSeconds($HoursMinutesSeconds,$dateTimeFormat) {
+    $utcDateTime = DateTime::createFromFormat($dateTimeFormat, $this->Day . ' ' . $HoursMinutesSeconds,new DateTimeZone($this->Timezone));
     $utcDateTime->setTimezone(new DateTimeZone('UTC'));
-    return $utcDateTime->format("Y-m-d " . $HoursMinutesSeconds);
+    return $utcDateTime->format($dateTimeFormat);
   }
 
   public function fetchAndAnalysisSensorData($db) {
